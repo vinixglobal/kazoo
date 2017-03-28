@@ -149,10 +149,10 @@ handle_call('status', _From, #state{cleanup_timer_ref=Cleanup
                                     ,hour_timer_ref=Hour
                                     ,day_timer_ref=Day
                                    }=State) ->
-    {'reply', [{'cleanup', erlang:read_timer(Cleanup)}
-               ,{'minute', erlang:read_timer(Minute)}
-               ,{'hour', erlang:read_timer(Hour)}
-               ,{'day', erlang:read_timer(Day)}
+    {'reply', [{'cleanup', get_timer_value(Cleanup)}
+               ,{'minute', get_timer_value(Minute)}
+               ,{'hour', get_timer_value(Hour)}
+               ,{'day', get_timer_value(Day)}
               ]
      , State};
 handle_call(_Request, _From, State) ->
@@ -278,23 +278,40 @@ stop_timer(_) -> 'ok'.
 start_timer(Expiry, Msg) ->
     erlang:send_after(Expiry, self(), Msg).
 
--spec start_cleanup_timer() -> reference().
+-spec get_timer_value('disbaled' | reference()) -> 'disbaled' | integer().
+get_timer_value('disbaled') -> 'disbaled';
+get_timer_value(Ref) -> erlang:read_timer(Ref).
+
+-spec start_cleanup_timer() -> 'disbaled' | reference().
 start_cleanup_timer() ->
-    Expiry = whapps_config:get_integer(?CONFIG_CAT, <<"cleanup_timer">>, ?SECONDS_IN_DAY),
-    lager:debug("starting cleanup timer for ~b s", [Expiry]),
-    start_timer(Expiry * ?MILLISECONDS_IN_SECOND, 'cleanup').
+    case whapps_config:get_is_true(?CONFIG_CAT, <<"run_cleanup_jobs">>, 'true') of
+        'false' -> 'disabled';
+        'true' ->
+            Expiry = whapps_config:get_integer(?CONFIG_CAT, <<"cleanup_timer">>, ?SECONDS_IN_DAY),
+            lager:debug("starting cleanup timer for ~b s", [Expiry]),
+            start_timer(Expiry * ?MILLISECONDS_IN_SECOND, 'cleanup')
+    end.
 
--spec start_minute_timer() -> reference().
+-spec start_minute_timer() -> 'disbaled' | reference().
 start_minute_timer() ->
-    start_timer(?MILLISECONDS_IN_MINUTE, 'minute_cleanup').
+    case whapps_config:get_is_true(?CONFIG_CAT, <<"run_minute_jobs">>, 'true') of
+        'false' -> 'disabled';
+        'true' -> start_timer(?MILLISECONDS_IN_MINUTE, 'minute_cleanup')
+    end.
 
--spec start_hour_timer() -> reference().
+-spec start_hour_timer() -> 'disbaled' | reference().
 start_hour_timer() ->
-    start_timer(?MILLISECONDS_IN_HOUR, 'hour_cleanup').
+    case whapps_config:get_is_true(?CONFIG_CAT, <<"run_hour_jobs">>, 'true') of
+	'false' -> 'disabled';
+	'true' -> start_timer(?MILLISECONDS_IN_HOUR, 'hour_cleanup')
+    end.
 
--spec start_day_timer() -> reference().
+-spec start_day_timer() -> 'disbaled' | reference().
 start_day_timer() ->
-    start_timer(?MILLISECONDS_IN_DAY, 'day_cleanup').
+    case whapps_config:get_is_true(?CONFIG_CAT, <<"run_day_jobs">>, 'true') of
+        'false' -> 'disabled';
+        'true' -> start_timer(?MILLISECONDS_IN_DAY, 'day_cleanup')
+    end.
 
 -spec cleanup_soft_deletes(ne_binary()) -> any().
 cleanup_soft_deletes(Account) ->
@@ -305,8 +322,6 @@ cleanup_soft_deletes(Account) ->
     end.
 
 -spec cleanup_account_soft_deletes(ne_binary()) -> 'ok'.
-cleanup_account_soft_deletes(Account) ->
-    AccountDb = wh_util:format_account_id(Account, 'encoded'),
     do_cleanup(AccountDb).
 
 -spec do_cleanup(ne_binary()) -> 'ok'.
